@@ -43,12 +43,34 @@ func NewGroup(group string, client *cloudwatchlogs.CloudWatchLogs) *Group {
 }
 
 // Create creates a log stream in the group and returns an io.Writer for it.
+//
+// This method assumes that the a brand new stream is being created, and will return an error
+// if the requested stream already exists. See the Attach method for alternative behavior.
 func (g *Group) Create(stream string) (io.Writer, error) {
 	if _, err := g.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
 		LogGroupName:  &g.group,
 		LogStreamName: &stream,
 	}); err != nil {
 		return nil, err
+	}
+
+	return NewWriter(g.group, stream, g.client), nil
+}
+
+// Attach creates a log stream in the group and returns an io.Writer for it.
+//
+// If the requested stream doesn't exist, it is created.
+// If the requested stream already exists, the requested stream is used.
+func (g *Group) Attach(stream string) (io.Writer, error) {
+	if _, err := g.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
+		LogGroupName:  &g.group,
+		LogStreamName: &stream,
+	}); err != nil {
+		if err.Error() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+			// Do nothing
+		} else {
+			return nil, err
+		}
 	}
 
 	return NewWriter(g.group, stream, g.client), nil
