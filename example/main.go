@@ -1,46 +1,32 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"log"
-	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/eltorocorp/cloudwatch"
-	"github.com/pborman/uuid"
 )
 
 func main() {
-	sess := session.Must(session.NewSession())
+	config := &aws.Config{
+		Region: aws.String("us-east-1"),
+	}
+	sess := session.Must(session.NewSession(config))
 
-	g := cloudwatch.NewGroup("test", cloudwatchlogs.New(sess))
-
-	stream := uuid.New()
-
-	w, err := g.Create(stream)
+	g, err := cloudwatch.NewGroup("test-jc", cloudwatchlogs.New(sess))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	r, err := g.Open(stream)
+	w, err := g.Attach("test-stream")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	go func() {
-		var i int
-		for {
-			i++
-			<-time.After(time.Second / 30)
-			_, err := fmt.Fprintf(w, "Line %d\n", i)
-			if err != nil {
-				log.Println(err)
-			}
-		}
-	}()
+	logger := log.New(w, "some-prefix", log.Llongfile)
 
-	io.Copy(os.Stdout, r)
+	logger.Println("Hi there. The current UTC time is ", time.Now().UTC())
 }

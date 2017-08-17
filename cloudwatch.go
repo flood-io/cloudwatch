@@ -4,6 +4,8 @@ import (
 	"io"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
 
@@ -35,11 +37,25 @@ type Group struct {
 }
 
 // NewGroup returns a new Group instance.
-func NewGroup(group string, client *cloudwatchlogs.CloudWatchLogs) *Group {
+func NewGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, error) {
+	createLogGroupInput := &cloudwatchlogs.CreateLogGroupInput{
+		LogGroupName: aws.String(group),
+	}
+	_, err := client.CreateLogGroup(createLogGroupInput)
+	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+				err = nil
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &Group{
 		group:  group,
 		client: client,
-	}
+	}, nil
 }
 
 // Create creates a log stream in the group and returns an io.Writer for it.
@@ -66,9 +82,12 @@ func (g *Group) Attach(stream string) (io.Writer, error) {
 		LogGroupName:  &g.group,
 		LogStreamName: &stream,
 	}); err != nil {
-		if err.Error() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
-			// Do nothing
-		} else {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+				err = nil
+			}
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
