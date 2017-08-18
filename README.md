@@ -5,7 +5,16 @@ This is a Go library to treat CloudWatch Log streams as io.Writers and io.Reader
 
 ```go
 group := NewGroup("group", cloudwatchlogs.New(defaults.DefaultConfig))
-w, err := group.Create("stream")
+w, err := group.Attach("streamThatMightAlreadyExist")
+fmt.Fprintln(w, "Hello World")
+w.Flush()
+```
+
+or
+
+```go
+group := NewGroup("group", cloudwatchlogs.New(defaults.DefaultConfig))
+w, err := group.Create("streamThatDoesntAlreadyExist")
 
 io.WriteString(w, "Hello World")
 

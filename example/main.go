@@ -16,12 +16,12 @@ func main() {
 	}
 	sess := session.Must(session.NewSession(config))
 
-	g, err := cloudwatch.NewGroup("test-group", cloudwatchlogs.New(sess))
+	g, err := cloudwatch.AttachGroup("test-group", cloudwatchlogs.New(sess))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	w, err := g.Attach("test-stream")
+	w, err := g.AttachStream("test-stream")
 	if err != nil {
 		log.Fatal(err)
 	}

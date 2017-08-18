@@ -28,8 +28,11 @@ type Group struct {
 	client *cloudwatchlogs.CloudWatchLogs
 }
 
-// NewGroup returns a new Group instance.
-func NewGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, error) {
+// AttachGroup creates a reference to a log group.
+//
+// If the group already exists, it is used.
+// If the group doesn't exist, it is created.
+func AttachGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, error) {
 	createLogGroupInput := &cloudwatchlogs.CreateLogGroupInput{
 		LogGroupName: aws.String(group),
 	}
@@ -50,26 +53,11 @@ func NewGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, erro
 	}, nil
 }
 
-// Create creates a log stream in the group and returns an io.Writer for it.
-//
-// This method assumes that the a brand new stream is being created, and will return an error
-// if the requested stream already exists. See the Attach method for alternative behavior.
-func (g *Group) Create(stream string) (*Writer, error) {
-	if _, err := g.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
-		LogGroupName:  &g.group,
-		LogStreamName: &stream,
-	}); err != nil {
-		return nil, err
-	}
-
-	return NewWriter(g.group, stream, g.client), nil
-}
-
-// Attach creates a log stream in the group and returns an io.Writer for it.
+// AttachStream creates a log stream in the group and returns an Writer for it.
 //
 // If the requested stream doesn't exist, it is created.
 // If the requested stream already exists, the requested stream is used.
-func (g *Group) Attach(stream string) (*Writer, error) {
+func (g *Group) AttachStream(stream string) (*Writer, error) {
 	if _, err := g.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
 		LogGroupName:  &g.group,
 		LogStreamName: &stream,
@@ -87,7 +75,7 @@ func (g *Group) Attach(stream string) (*Writer, error) {
 	return NewWriter(g.group, stream, g.client), nil
 }
 
-// Open returns an io.Reader to read from the log stream.
+// Open returns an Reader to read from the log stream.
 func (g *Group) Open(stream string) (*Reader, error) {
 	return NewReader(g.group, stream, g.client), nil
 }
