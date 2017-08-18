@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
@@ -14,7 +16,7 @@ import (
 type Reader struct {
 	group, stream, nextToken *string
 
-	client client
+	client cloudwatchlogsiface.CloudWatchLogsAPI
 
 	throttle <-chan time.Time
 
@@ -25,11 +27,11 @@ type Reader struct {
 	err error
 }
 
-func NewReader(group, stream string, client *cloudwatchlogs.CloudWatchLogs) *Reader {
+func NewReader(group, stream string, client cloudwatchlogsiface.CloudWatchLogsAPI) *Reader {
 	return newReader(group, stream, client)
 }
 
-func newReader(group, stream string, client client) *Reader {
+func newReader(group, stream string, client cloudwatchlogsiface.CloudWatchLogsAPI) *Reader {
 	r := &Reader{
 		group:    aws.String(group),
 		stream:   aws.String(stream),

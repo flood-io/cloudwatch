@@ -16,7 +16,7 @@ func main() {
 	}
 	sess := session.Must(session.NewSession(config))
 
-	g, err := cloudwatch.NewGroup("test-jc", cloudwatchlogs.New(sess))
+	g, err := cloudwatch.NewGroup("test-group", cloudwatchlogs.New(sess))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -26,7 +26,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	logger := log.New(w, "some-prefix", log.Llongfile)
-
-	logger.Println("Hi there. The current UTC time is ", time.Now().UTC())
+	logger := log.New(w, "", log.Lshortfile)
+	logger.Println("Woot", time.Now().UTC())
+	err = w.Flush()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

@@ -2,11 +2,13 @@ package cloudwatch
 
 import (
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
 	"github.com/stretchr/testify/mock"
 )
 
 type mockClient struct {
 	mock.Mock
+	cloudwatchlogsiface.CloudWatchLogsAPI
 }
 
 func (c *mockClient) PutLogEvents(input *cloudwatchlogs.PutLogEventsInput) (*cloudwatchlogs.PutLogEventsOutput, error) {
