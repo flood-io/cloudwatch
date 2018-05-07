@@ -14,7 +14,7 @@ const (
 	readThrottle = time.Second / 10
 
 	// The maximum rate of a PutLogEvents request is 5 requests per second per log stream.
-	writeThrottle = time.Second / 5
+	defaultFlushEvery = time.Second / 5
 )
 
 // now is a function that returns the current time.Time. It's a variable so that
@@ -28,15 +28,36 @@ type Group struct {
 	client *cloudwatchlogs.CloudWatchLogs
 }
 
+func NewGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, error) {
+	return &Group{
+		group:  group,
+		client: client,
+	}, nil
+}
+
 // AttachGroup creates a reference to a log group.
 //
 // If the group already exists, it is used.
 // If the group doesn't exist, it is created.
 func AttachGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, error) {
+	// attempt to find
+	describeGroupOutput, err := client.DescribeLogGroups(&cloudwatchlogs.DescribeLogGroupsInput{
+		LogGroupNamePrefix: aws.String(group),
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, logGroup := range describeGroupOutput.LogGroups {
+		if *logGroup.LogGroupName == group {
+			return NewGroup(group, client)
+		}
+	}
+
+	// otherwise try to create
 	createLogGroupInput := &cloudwatchlogs.CreateLogGroupInput{
 		LogGroupName: aws.String(group),
 	}
-	_, err := client.CreateLogGroup(createLogGroupInput)
+	_, err = client.CreateLogGroup(createLogGroupInput)
 	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok {
 			if awsErr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
@@ -47,10 +68,7 @@ func AttachGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, e
 			return nil, err
 		}
 	}
-	return &Group{
-		group:  group,
-		client: client,
-	}, nil
+	return NewGroup(group, client)
 }
 
 // AttachStream creates a log stream in the group and returns an Writer for it.
@@ -58,6 +76,10 @@ func AttachGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, e
 // If the requested stream doesn't exist, it is created.
 // If the requested stream already exists, the requested stream is used.
 func (g *Group) AttachStream(stream string) (*Writer, error) {
+	return g.AttachStreamWithOptions(stream, WriterOptions{FlushEvery: defaultFlushEvery})
+}
+
+func (g *Group) AttachStreamWithOptions(stream string, opts WriterOptions) (*Writer, error) {
 	if _, err := g.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
 		LogGroupName:  &g.group,
 		LogStreamName: &stream,
@@ -72,7 +94,7 @@ func (g *Group) AttachStream(stream string) (*Writer, error) {
 		}
 	}
 
-	return NewWriter(g.group, stream, g.client), nil
+	return NewWriter(g.group, stream, g.client, opts), nil
 }
 
 // Open returns an Reader to read from the log stream.

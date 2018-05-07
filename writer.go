@@ -21,6 +21,10 @@ func (e *RejectedLogEventsInfoError) Error() string {
 	return fmt.Sprintf("log messages were rejected")
 }
 
+type WriterOptions struct {
+	FlushEvery time.Duration
+}
+
 // Writer is an io.Writer implementation that writes lines to a cloudwatch logs
 // stream.
 type Writer struct {
@@ -33,17 +37,17 @@ type Writer struct {
 
 	events eventsBuffer
 
-	throttle <-chan time.Time
+	flushTicker <-chan time.Time
 
 	sync.Mutex // This protects calls to flush.
 }
 
-func NewWriter(group, stream string, client cloudwatchlogsiface.CloudWatchLogsAPI) *Writer {
+func NewWriter(group, stream string, client cloudwatchlogsiface.CloudWatchLogsAPI, opts WriterOptions) *Writer {
 	w := &Writer{
-		group:    aws.String(group),
-		stream:   aws.String(stream),
-		client:   client,
-		throttle: time.Tick(writeThrottle),
+		group:       aws.String(group),
+		stream:      aws.String(stream),
+		client:      client,
+		flushTicker: time.Tick(opts.FlushEvery),
 	}
 	go w.start() // start flushing
 	return w
@@ -71,7 +75,7 @@ func (w *Writer) start() error {
 			return nil
 		}
 
-		<-w.throttle
+		<-w.flushTicker
 		if err := w.Flush(); err != nil {
 			return err
 		}
