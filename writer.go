@@ -5,12 +5,27 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
+)
+
+const (
+	// See: http://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html
+	perEventBytes          = 26
+	maximumBytesPerPut     = 1048576
+	maximumLogEventsPerPut = 10000
+
+	// See: http://docs.aws.amazon.com/AmazonCloudWatch/latest/DeveloperGuide/cloudwatch_limits.html
+	maximumBytesPerEvent = 262144 - perEventBytes
+
+	dataAlreadyAcceptedCode  = "DataAlreadyAcceptedException"
+	invalidSequenceTokenCode = "InvalidSequenceTokenException"
 )
 
 type RejectedLogEventsInfoError struct {
@@ -76,21 +91,20 @@ func (w *Writer) start() error {
 		}
 
 		<-w.flushTicker
-		if err := w.Flush(); err != nil {
-			return err
-		}
+		w.Flush()
 	}
 }
 
 // Closes the writer. Any subsequent calls to Write will return
 // io.ErrClosedPipe.
-func (w *Writer) Close() error {
+func (w *Writer) Close() {
 	w.closed = true
-	return w.Flush() // Flush remaining buffer.
+	w.Flush() // Flush remaining buffer.
+	return
 }
 
 // Flush flushes the events that are currently buffered.
-func (w *Writer) Flush() error {
+func (w *Writer) Flush() {
 	w.Lock()
 	defer w.Unlock()
 
@@ -98,57 +112,86 @@ func (w *Writer) Flush() error {
 
 	// No events to flush.
 	if len(events) == 0 {
-		return nil
+		return
 	}
 
-	w.err = w.flush(events)
-	return w.err
+	w.flush(events)
+	return
 }
 
-// flush flashes a slice of log events. This method should be called
+// flush flushes a slice of log events. This method should be called
 // sequentially to ensure that the sequence token is updated properly.
-func (w *Writer) flush(events []*cloudwatchlogs.InputLogEvent) error {
+func (w *Writer) flush(events []*cloudwatchlogs.InputLogEvent) {
+
+	nextSequenceToken, err := w.putLogEvents(events, w.sequenceToken)
+
+	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == dataAlreadyAcceptedCode {
+				// already submitted, just grab the correct sequence token
+				parts := strings.Split(awsErr.Message(), " ")
+				nextSequenceToken = &parts[len(parts)-1]
+				// TODO log locally...
+				FallbackLogger.Errorln(
+					"Data already accepted, ignoring error",
+					"errorCode: ", awsErr.Code(),
+					"message: ", awsErr.Message(),
+					"logGroupName: ", *w.group,
+					"logStreamName: ", *w.stream,
+				)
+				err = nil
+			} else if awsErr.Code() == invalidSequenceTokenCode {
+				// sequence code is bad, grab the correct one and retry
+				parts := strings.Split(awsErr.Message(), " ")
+				token := parts[len(parts)-1]
+				nextSequenceToken, err = w.putLogEvents(events, &token)
+			}
+		}
+	}
+
+	if err != nil {
+		w.err = err
+		FallbackLogger.Errorln("error flushing", err)
+	} else {
+		w.sequenceToken = nextSequenceToken
+	}
+
+	// if resp.RejectedLogEventsInfo != nil {
+	// w.err = &RejectedLogEventsInfoError{Info: resp.RejectedLogEventsInfo}
+	// return w.err
+	// }
+
+	return
+}
+
+func (w *Writer) putLogEvents(events []*cloudwatchlogs.InputLogEvent, sequenceToken *string) (nextSequenceToken *string, err error) {
 	resp, err := w.client.PutLogEvents(&cloudwatchlogs.PutLogEventsInput{
 		LogEvents:     events,
 		LogGroupName:  w.group,
 		LogStreamName: w.stream,
-		SequenceToken: w.getSequenceToken(),
+		SequenceToken: sequenceToken,
 	})
 	if err != nil {
-		return err
-	}
-
-	if resp.RejectedLogEventsInfo != nil {
-		w.err = &RejectedLogEventsInfoError{Info: resp.RejectedLogEventsInfo}
-		return w.err
-	}
-
-	w.sequenceToken = resp.NextSequenceToken
-
-	return nil
-}
-
-// getSequenceToken retrieves the sequence token for the current stream.
-// If the sequence token is already set (non-nil), that value is returned.
-// If the sequence token is nil, the token is retrieved from the log stream.
-// If the stream returns an error (e.g. the stream doesnt exist), the token is left as nil
-// which is acceptable for new streams.
-func (w *Writer) getSequenceToken() (sequenceToken *string) {
-	if w.sequenceToken == nil {
-		describeLogStreamsOutput, err := w.client.DescribeLogStreams(&cloudwatchlogs.DescribeLogStreamsInput{
-			LogGroupName:        w.group,
-			LogStreamNamePrefix: w.stream,
-		})
-		if err == nil {
-			for _, stream := range describeLogStreamsOutput.LogStreams {
-				if *stream.LogStreamName == *w.stream {
-					sequenceToken = stream.UploadSequenceToken
-					break
-				}
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() != invalidSequenceTokenCode {
+				FallbackLogger.Errorf(
+					"Failed to put log: events: errorCode: %s message: %s, origError: %s log-group: %s log-stream: %s",
+					awsErr.Code(),
+					awsErr.Message(),
+					awsErr.OrigErr(),
+					*w.group,
+					*w.stream,
+				)
 			}
+		} else {
+			FallbackLogger.Errorf("Failed to put log: %s", err)
 		}
+
+		return
 	}
-	return sequenceToken
+
+	nextSequenceToken = resp.NextSequenceToken
+	return
 }
 
 // buffer splits up b into individual log events and inserts them into the

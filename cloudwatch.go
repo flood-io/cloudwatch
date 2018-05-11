@@ -14,7 +14,7 @@ const (
 	readThrottle = time.Second / 10
 
 	// The maximum rate of a PutLogEvents request is 5 requests per second per log stream.
-	defaultFlushEvery = time.Second / 5
+	defaultFlushEvery = 5 * time.Second
 )
 
 // now is a function that returns the current time.Time. It's a variable so that
@@ -28,6 +28,7 @@ type Group struct {
 	client *cloudwatchlogs.CloudWatchLogs
 }
 
+// AttachGroup creates a reference to a log group.
 func NewGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, error) {
 	return &Group{
 		group:  group,
@@ -40,7 +41,7 @@ func NewGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, erro
 // If the group already exists, it is used.
 // If the group doesn't exist, it is created.
 func AttachGroup(group string, client *cloudwatchlogs.CloudWatchLogs) (*Group, error) {
-	// attempt to find
+	// attempt to find first
 	describeGroupOutput, err := client.DescribeLogGroups(&cloudwatchlogs.DescribeLogGroupsInput{
 		LogGroupNamePrefix: aws.String(group),
 	})
@@ -80,10 +81,11 @@ func (g *Group) AttachStream(stream string) (*Writer, error) {
 }
 
 func (g *Group) AttachStreamWithOptions(stream string, opts WriterOptions) (*Writer, error) {
-	if _, err := g.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
+	_, err := g.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
 		LogGroupName:  &g.group,
 		LogStreamName: &stream,
-	}); err != nil {
+	})
+	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok {
 			if awsErr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
 				err = nil
