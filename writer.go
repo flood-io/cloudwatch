@@ -48,7 +48,7 @@ type Writer struct {
 	client cloudwatchlogsiface.CloudWatchLogsAPI
 
 	closed bool
-	err    error
+	Err    error
 
 	events eventsBuffer
 
@@ -75,10 +75,10 @@ func (w *Writer) Write(b []byte) (int, error) {
 		return 0, io.ErrClosedPipe
 	}
 
-	if w.err != nil {
-		w.err = nil
-		return 0, w.err
-	}
+	// if w.err != nil {
+	// w.err = nil
+	// return 0, w.err
+	// }
 
 	return w.buffer(b)
 }
@@ -151,7 +151,7 @@ func (w *Writer) flush(events []*cloudwatchlogs.InputLogEvent) {
 	}
 
 	if err != nil {
-		w.err = err
+		w.Err = err
 		FallbackLogger.Errorln("error flushing", err)
 	} else {
 		w.sequenceToken = nextSequenceToken
