@@ -76,6 +76,7 @@ func (w *Writer) Write(b []byte) (int, error) {
 	}
 
 	if w.err != nil {
+		w.err = nil
 		return 0, w.err
 	}
 
